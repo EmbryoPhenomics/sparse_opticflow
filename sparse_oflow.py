@@ -63,13 +63,19 @@ def base(frames, mask, feature_params, lk_params):
 
         p1, st, err = cv2.calcOpticalFlowPyrLK(first, frame_gray, p0, None, **lk_params)
 
-        good_new = p1[st == 1]
-        good_old = p0[st == 1]
+        if p1 is None:
+            good_new = None
+            good_old = None
+        else:    
+            good_new = p1[st == 1]
+            good_old = p0[st == 1]
 
         yield (frame_gray, (good_new, good_old))
 
         first = frame_gray.copy()
-        p0 = good_new.reshape(-1, 1, 2)
+
+        if p1 is None:
+            p0 = p0.reshape(-1, 1, 2)
 
 
 def motion_tracks(
@@ -146,69 +152,80 @@ def motion_tracks(
         for (frame, (good_new, good_old)) in base(
             frames, mask, feature_params, lk_params
         ):
-            # Magnitude of rotation (positive and negative)
-            ind_diff = good_new - good_old
-            ind_dist = pointwise_diff(ind_diff, axis=(1,))
-            rot = np.asarray(
-                list(map(lambda vals: math.atan2(*np.flip(vals)), ind_diff))
-            ) # compute angles of rotation
+            if good_new is None and good_old is None:
+                pos_m.append(np.nan)
+                neg_m.append(np.nan)
+                pos_angle.append(np.nan)
+                neg_angle.append(np.nan)
+                pos_x.append(np.nan)
+                pos_y.append(np.nan)
+                neg_x.append(np.nan)
+                neg_y.append(np.nan)
+                ce_m.append(np.nan)
+            else:
+                # Magnitude of rotation (positive and negative)
+                ind_diff = good_new - good_old
+                ind_dist = pointwise_diff(ind_diff, axis=(1,))
+                rot = np.asarray(
+                    list(map(lambda vals: math.atan2(*np.flip(vals)), ind_diff))
+                ) # compute angles of rotation
 
-            pos_m.append(np.sum(ind_dist[rot > 0]))
-            neg_m.append(np.sum(ind_dist[rot <= 0]))
+                pos_m.append(np.sum(ind_dist[rot > 0]))
+                neg_m.append(np.sum(ind_dist[rot <= 0]))
 
-            # From original impl (raw values)
-            pos_angle.append(np.sum(rot[rot > 0]))
-            neg_angle.append(np.sum(rot[rot <= 0]))
+                # From original impl (raw values)
+                pos_angle.append(np.sum(rot[rot > 0]))
+                neg_angle.append(np.sum(rot[rot <= 0]))
 
-            pos_x.append(np.sum([coord[0] for coord in good_new[rot > 0]]))
-            pos_y.append(np.sum([coord[1] for coord in good_new[rot > 0]]))
-            neg_x.append(np.sum([coord[0] for coord in good_new[rot <= 0]]))
-            neg_y.append(np.sum([coord[1] for coord in good_new[rot <= 0]]))
+                pos_x.append(np.sum([coord[0] for coord in good_new[rot > 0]]))
+                pos_y.append(np.sum([coord[1] for coord in good_new[rot > 0]]))
+                neg_x.append(np.sum([coord[0] for coord in good_new[rot <= 0]]))
+                neg_y.append(np.sum([coord[1] for coord in good_new[rot <= 0]]))
 
-            # Center of mass movement
-            com_old = good_old.mean(axis=(0,))
-            com_new = good_new.mean(axis=(0,))
-            com_m.append(pointwise_diff((com_new - com_old), axis=(0,)))
-            com_old, com_new = map(tuple, (com_old, com_new))  # for live view
+                # Center of mass movement
+                com_old = good_old.mean(axis=(0,))
+                com_new = good_new.mean(axis=(0,))
+                com_m.append(pointwise_diff((com_new - com_old), axis=(0,)))
+                com_old, com_new = map(tuple, (com_old, com_new))  # for live view
 
-            # Movement relative to center of mass
-            old_com_dist = pointwise_diff((good_old - com_old), axis=(1,))
-            new_com_dist = pointwise_diff((good_new - com_new), axis=(1,))
-            ce_dist = np.sum(new_com_dist - old_com_dist)
-            ce_m.append(ce_dist)
+                # Movement relative to center of mass
+                old_com_dist = pointwise_diff((good_old - com_old), axis=(1,))
+                new_com_dist = pointwise_diff((good_new - com_new), axis=(1,))
+                ce_dist = np.sum(new_com_dist - old_com_dist)
+                ce_m.append(ce_dist)
 
-            if writer or display:
-                ce_line_color = (0, 0, 255)
-                if ce_dist > 0:
-                    ce_line_color = (0, 255, 255)
-                for old, new, r in zip(good_old, good_new, rot):
-                    old, new = map(tuple, (old, new))
+                if writer or display:
+                    ce_line_color = (0, 0, 255)
+                    if ce_dist > 0:
+                        ce_line_color = (0, 255, 255)
+                    for old, new, r in zip(good_old, good_new, rot):
+                        old, new = map(tuple, (old, new))
 
-                    rot_line_color = (0, 0, 255)
-                    if r > 0:
-                        rot_line_color = (0, 255, 255)
+                        rot_line_color = (0, 0, 255)
+                        if r > 0:
+                            rot_line_color = (0, 255, 255)
 
-                    new = tuple(map(int, new))
-                    old = tuple(map(int, old))
-                    cv2.line(rot_mask, new, old, rot_line_color, 1)
-                    cv2.line(ce_mask, new, old, ce_line_color, 1)
+                        new = tuple(map(int, new))
+                        old = tuple(map(int, old))
+                        cv2.line(rot_mask, new, old, rot_line_color, 1)
+                        cv2.line(ce_mask, new, old, ce_line_color, 1)
 
-                com_new = tuple(map(int, com_new))
-                com_old = tuple(map(int, com_old))
-                cv2.line(rot_mask, com_new, com_old, (255, 0, 0), 2)
-                cv2.line(ce_mask, com_new, com_old, (255, 0, 0), 2)
+                    com_new = tuple(map(int, com_new))
+                    com_old = tuple(map(int, com_old))
+                    cv2.line(rot_mask, com_new, com_old, (255, 0, 0), 2)
+                    cv2.line(ce_mask, com_new, com_old, (255, 0, 0), 2)
 
-                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-                img = np.hstack((frame, rot_mask, ce_mask))
+            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            img = np.hstack((frame, rot_mask, ce_mask))
 
-                if writer:
-                    writer.write(img)
+            if writer:
+                writer.write(img)
 
-                if display:
-                    cv2.imshow("Motion tracking live view", img)
-                    k = cv2.waitKey(ms)
-                    if k == 27:
-                        break
+            if display:
+                cv2.imshow("Motion tracking live view", img)
+                k = cv2.waitKey(ms)
+                if k == 27:
+                    break
 
             pg.update(1)
 
