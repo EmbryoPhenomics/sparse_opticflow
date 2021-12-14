@@ -76,7 +76,9 @@ def base(frames, mask, feature_params, lk_params):
 
         if p1 is None:
             p0 = p0.reshape(-1, 1, 2)
-
+        # Oli added..
+        else:
+            p0 = good_new.reshape(-1, 1, 2)
 
 def motion_tracks(
     frames, mask, feature_params, lk_params, writer, display=True, ms=30, verbose=True
